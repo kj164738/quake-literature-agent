@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, TypedDict
 
 from quake_agent.arxiv_tool import ArxivPaper
@@ -40,7 +40,26 @@ class LiteratureAgent:
 
     def answer(self, question: str) -> AgentAnswer:
         graph = self._build_graph()
-        state = graph.invoke({"question": question, "steps": []})
+        try:
+            state = graph.invoke({"question": question, "steps": []})
+        except Exception as exc:
+            message = str(exc)
+            if "insufficient_quota" in message or "current quota" in message:
+                return AgentAnswer(
+                    answer=(
+                        "OpenAI 账号当前没有可用额度，无法生成正式回答。"
+                        "请检查 OpenAI 账户的余额、套餐或付款设置；也可以暂时切换到 DeepSeek。"
+                    ),
+                    steps=["查询了资料，但模型调用因为 OpenAI 额度不足而停止"],
+                    sources=[],
+                )
+            if "rate_limit" in message.lower() or "429" in message:
+                return AgentAnswer(
+                    answer="模型服务现在请求过多或被限流，请稍后再试。",
+                    steps=["查询了资料，但模型服务暂时限制了请求"],
+                    sources=[],
+                )
+            raise
         return AgentAnswer(
             answer=state.get("answer", ""),
             steps=state.get("steps", []),
