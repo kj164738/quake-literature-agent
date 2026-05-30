@@ -1,0 +1,11 @@
+[project]
+name = "quake-literature-agent"
+version = "0.1.0"
+description = "Earthquake and geophysics literature QA agent demo."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
