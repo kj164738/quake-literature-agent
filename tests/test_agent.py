@@ -12,6 +12,11 @@ class FakeLLM:
         return Response()
 
 
+class QuotaErrorLLM:
+    def invoke(self, prompt: str):
+        raise Exception("Error code: 429 - insufficient_quota: You exceeded your current quota")
+
+
 def build_kb(chunks):
     kb = LocalKnowledgeBase()
     kb.build(chunks)
@@ -64,3 +69,18 @@ def test_agent_refuses_when_no_sources_exist():
     assert "不能给出确定结论" in result.answer
     assert result.sources == []
 
+
+def test_agent_returns_friendly_message_for_quota_error():
+    chunks = [
+        PaperChunk(
+            text="地震预警系统需要快速估计震级和震源位置。",
+            source="early-warning.md",
+            chunk_id=1,
+        )
+    ]
+    agent = LiteratureAgent(build_kb(chunks), QuotaErrorLLM(), lambda query, max_results: [])
+
+    result = agent.answer("地震预警为什么要估计震级？")
+
+    assert "没有可用额度" in result.answer
+    assert result.sources == []
