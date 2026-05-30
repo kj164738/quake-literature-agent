@@ -1,0 +1,23 @@
+from quake_agent.config import load_settings
+
+
+def test_openai_is_selected_when_openai_key_exists(monkeypatch):
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    settings = load_settings()
+
+    assert settings.active_provider == "openai"
+    assert settings.has_api_key
+
+
+def test_placeholder_keys_are_ignored(monkeypatch):
+    monkeypatch.setenv("MODEL_PROVIDER", "auto")
+    monkeypatch.setenv("OPENAI_API_KEY", "your_openai_api_key_here")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "your_deepseek_api_key_here")
+
+    settings = load_settings()
+
+    assert settings.active_provider == "demo"
+    assert not settings.has_api_key
