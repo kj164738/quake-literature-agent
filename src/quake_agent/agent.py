@@ -37,6 +37,7 @@ class LiteratureAgent:
     llm: object
     arxiv_search: Callable[[str, int], list[ArxivPaper]]
     local_threshold: float = 0.12
+    arxiv_mode: str = "auto"
 
     def answer(self, question: str) -> AgentAnswer:
         graph = self._build_graph()
@@ -92,6 +93,10 @@ class LiteratureAgent:
         return {**state, "local_results": results, "steps": steps}
 
     def _needs_arxiv(self, state: AgentState) -> bool:
+        if self.arxiv_mode == "always":
+            return True
+        if self.arxiv_mode == "off":
+            return False
         results = state.get("local_results", [])
         if not results:
             return True
@@ -99,13 +104,18 @@ class LiteratureAgent:
 
     def _search_arxiv(self, state: AgentState) -> AgentState:
         papers = self.arxiv_search(state["question"], 3)
-        steps = [*state.get("steps", []), "本地资料不足，查询了 arXiv"]
+        if papers:
+            step = "本地资料不足，查询了 arXiv"
+        else:
+            step = "本地资料不足，arXiv 也没有返回可用结果"
+        steps = [*state.get("steps", []), step]
         return {**state, "arxiv_results": papers, "steps": steps}
 
     def _generate(self, state: AgentState) -> AgentState:
         sources = self._collect_sources(state)
         steps = [*state.get("steps", []), "根据可用资料生成回答"]
         if not sources:
+            steps = [*steps, "没有找到可靠来源，触发拒答机制"]
             return {
                 **state,
                 "steps": steps,
@@ -121,6 +131,8 @@ class LiteratureAgent:
     def _collect_sources(self, state: AgentState) -> list[Source]:
         sources: list[Source] = []
         for result in state.get("local_results", []):
+            if result.score < self.local_threshold:
+                continue
             sources.append(
                 Source(
                     label=result.chunk.label,
