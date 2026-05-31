@@ -29,6 +29,12 @@ def main() -> None:
             accept_multiple_files=True,
         )
         use_samples = st.checkbox("使用内置示例资料", value=True)
+        arxiv_mode_label = st.radio(
+            "外部搜索",
+            ["自动", "总是查询 arXiv", "关闭"],
+            index=0,
+            help="演示时可以选择“总是查询 arXiv”，稳定展示外部工具调用。",
+        )
         st.divider()
         st.header("模型状态")
         if settings.has_api_key:
@@ -67,7 +73,12 @@ def main() -> None:
                     llm = build_chat_llm(settings)
                 except MissingApiKeyError:
                     llm = DemoLLM()
-                agent = LiteratureAgent(kb, llm, search_arxiv)
+                agent = LiteratureAgent(
+                    kb,
+                    llm,
+                    search_arxiv,
+                    arxiv_mode=_arxiv_mode(arxiv_mode_label),
+                )
                 result = agent.answer(question)
 
             st.markdown("### 回答")
@@ -101,6 +112,14 @@ def _load_chunks(uploaded_files, sample_dir: str, use_samples: bool):
                 paths.append(path)
             chunks.extend(load_documents(paths))
     return chunks
+
+
+def _arxiv_mode(label: str) -> str:
+    if label == "总是查询 arXiv":
+        return "always"
+    if label == "关闭":
+        return "off"
+    return "auto"
 
 
 if __name__ == "__main__":
