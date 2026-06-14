@@ -11,6 +11,7 @@
 - 通过 Agent 流程判断是否需要查询外部论文
 - 支持手动打开 arXiv 查询，方便演示外部工具调用
 - 没有可靠资料时会说明资料不足，避免乱答
+- 内置评测脚本，自动检查本地检索、外部搜索和拒答行为
 - 没有 API Key 时也能进入网页查看完整流程
 
 ## 技术栈
@@ -91,6 +92,20 @@ flowchart TD
 pytest
 ```
 
+## Agent 评测
+
+项目内置了一个轻量评测 harness，用固定问题检查 Agent 的关键行为是否稳定：
+
+```powershell
+python eval_agent.py
+```
+
+它会检查三类场景：
+
+- 本地论文能够回答的问题
+- 需要展示 arXiv 外部搜索的问题
+- 没有可靠来源时触发拒答的问题
+
 ## 简历表述
 
-基于 LangChain + LangGraph 构建地震/地球物理文献问答 Agent，集成本地论文 RAG 检索与 arXiv 外部搜索工具，支持答案来源追踪和资料不足时的拒答机制，并通过 Streamlit 提供可交互网页 Demo。
+基于 LangChain + LangGraph 构建地震/地球物理文献问答 Agent，集成本地论文 RAG 检索与 arXiv 外部搜索工具，支持答案来源追踪和资料不足时的拒答机制；使用 Streamlit 提供可交互网页 Demo，并构建轻量评测 harness 自动验证本地检索、外部工具调用和拒答行为。
