@@ -42,9 +42,15 @@ class HashEmbeddings:
 
 
 class LocalKnowledgeBase:
-    def __init__(self, persist_dir: str = ".chroma", collection_name: str = "quake_papers"):
+    def __init__(
+        self,
+        persist_dir: str = ".chroma",
+        collection_name: str = "quake_papers",
+        use_chroma: bool = True,
+    ):
         self.persist_dir = persist_dir
         self.collection_name = collection_name
+        self.use_chroma = use_chroma
         self.embeddings = HashEmbeddings()
         self._chunks: list[PaperChunk] = []
         self._chroma = None
@@ -52,6 +58,10 @@ class LocalKnowledgeBase:
     def build(self, chunks: list[PaperChunk]) -> None:
         self._chunks = chunks
         if not chunks:
+            self._chroma = None
+            return
+
+        if not self.use_chroma:
             self._chroma = None
             return
 
