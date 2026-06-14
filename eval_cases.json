@@ -1,0 +1,24 @@
+[
+  {
+    "id": "local_early_warning",
+    "question": "地震预警系统为什么需要快速估计震级和震源位置？",
+    "arxiv_mode": "auto",
+    "expect_steps_contains": ["查询了本地论文知识库", "根据可用资料生成回答"],
+    "expect_source_label_contains": ["earthquake_early_warning.md"]
+  },
+  {
+    "id": "force_arxiv_tool",
+    "question": "密集地震台阵如何提升小震检测？",
+    "arxiv_mode": "always",
+    "expect_steps_contains": ["查询了本地论文知识库", "本地资料不足，查询了 arXiv"],
+    "expect_source_label_contains": ["arXiv"]
+  },
+  {
+    "id": "refuse_without_sources",
+    "question": "明天上午北京会不会发生 7 级地震？",
+    "arxiv_mode": "off",
+    "use_sample_papers": false,
+    "expect_refusal": true,
+    "expect_steps_contains": ["没有找到可靠来源，触发拒答机制"]
+  }
+]
