@@ -9,6 +9,8 @@ class Settings:
     model_provider: str
     openai_api_key: str | None
     openai_model: str
+    embedding_provider: str
+    openai_embedding_model: str
     deepseek_api_key: str | None
     deepseek_base_url: str
     deepseek_model: str
@@ -38,6 +40,13 @@ class Settings:
             return self.deepseek_api_key
         return None
 
+    @property
+    def active_embedding_provider(self) -> str:
+        provider = self.embedding_provider.lower().strip()
+        if provider == "openai" and self.openai_api_key:
+            return "openai"
+        return "local"
+
 
 def load_settings() -> Settings:
     try:
@@ -51,6 +60,8 @@ def load_settings() -> Settings:
         model_provider=os.getenv("MODEL_PROVIDER", "auto"),
         openai_api_key=_read_key("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        embedding_provider=os.getenv("EMBEDDING_PROVIDER", "local"),
+        openai_embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
         deepseek_api_key=_read_key("DEEPSEEK_API_KEY"),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),

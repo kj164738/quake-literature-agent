@@ -9,6 +9,7 @@ from quake_agent.agent import LiteratureAgent
 from quake_agent.arxiv_tool import search_arxiv
 from quake_agent.config import load_settings
 from quake_agent.document_loader import load_directory, load_documents
+from quake_agent.embeddings import build_embeddings
 from quake_agent.llm import DemoLLM, MissingApiKeyError, build_chat_llm
 from quake_agent.vector_store import LocalKnowledgeBase
 
@@ -41,6 +42,10 @@ def main() -> None:
             st.success(f"已配置 {settings.active_provider.upper()} API Key")
         else:
             st.warning("未配置 API Key，将使用离线演示回答")
+        if settings.active_embedding_provider == "openai":
+            st.success(f"语义检索：{settings.openai_embedding_model}")
+        else:
+            st.info("检索：本地混合检索")
         st.code("streamlit run app.py", language="bash")
 
     chunks = _load_chunks(uploaded_files, settings.sample_dir, use_samples)
@@ -67,7 +72,10 @@ def main() -> None:
 
         if ask:
             with st.spinner("Agent 正在查资料并生成回答..."):
-                kb = LocalKnowledgeBase(settings.chroma_dir)
+                kb = LocalKnowledgeBase(
+                    settings.chroma_dir,
+                    embeddings=build_embeddings(settings),
+                )
                 kb.build(chunks)
                 try:
                     llm = build_chat_llm(settings)
