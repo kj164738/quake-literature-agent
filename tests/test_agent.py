@@ -17,6 +17,11 @@ class QuotaErrorLLM:
         raise Exception("Error code: 429 - insufficient_quota: You exceeded your current quota")
 
 
+class ConnectionErrorLLM:
+    def invoke(self, prompt: str):
+        raise Exception("APIConnectionError: Connection error.")
+
+
 def build_kb(chunks):
     kb = LocalKnowledgeBase()
     kb.build(chunks)
@@ -116,4 +121,22 @@ def test_agent_returns_friendly_message_for_quota_error():
     result = agent.answer("地震预警为什么要估计震级？")
 
     assert "没有可用额度" in result.answer
-    assert result.sources == []
+    assert "额度不足" in result.steps[-1]
+    assert result.sources[0].label.startswith("early-warning.md")
+
+
+def test_agent_returns_friendly_message_for_connection_error():
+    chunks = [
+        PaperChunk(
+            text="地震预警系统需要快速估计震级和震源位置。",
+            source="early-warning.md",
+            chunk_id=1,
+        )
+    ]
+    agent = LiteratureAgent(build_kb(chunks), ConnectionErrorLLM(), lambda query, max_results: [])
+
+    result = agent.answer("地震预警为什么要估计震级？")
+
+    assert "连接不上" in result.answer
+    assert "连接失败" in result.steps[-1]
+    assert result.sources[0].label.startswith("early-warning.md")

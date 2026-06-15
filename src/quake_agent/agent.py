@@ -44,20 +44,11 @@ class LiteratureAgent:
         try:
             state = graph.invoke({"question": question, "steps": []})
         except Exception as exc:
-            message = str(exc)
-            if "insufficient_quota" in message or "current quota" in message:
+            if _is_model_call_error(exc):
+                answer, step = _model_error_response(exc)
                 return AgentAnswer(
-                    answer=(
-                        "OpenAI 账号当前没有可用额度，无法生成正式回答。"
-                        "请检查 OpenAI 账户的余额、套餐或付款设置；也可以暂时切换到 DeepSeek。"
-                    ),
-                    steps=["查询了资料，但模型调用因为 OpenAI 额度不足而停止"],
-                    sources=[],
-                )
-            if "rate_limit" in message.lower() or "429" in message:
-                return AgentAnswer(
-                    answer="模型服务现在请求过多或被限流，请稍后再试。",
-                    steps=["查询了资料，但模型服务暂时限制了请求"],
+                    answer=answer,
+                    steps=[step],
                     sources=[],
                 )
             raise
@@ -124,7 +115,16 @@ class LiteratureAgent:
             }
 
         prompt = build_prompt(state["question"], sources)
-        response = self.llm.invoke(prompt)
+        try:
+            response = self.llm.invoke(prompt)
+        except Exception as exc:
+            answer, step = _model_error_response(exc)
+            return {
+                **state,
+                "steps": [*steps, step],
+                "sources": sources,
+                "answer": answer,
+            }
         answer = getattr(response, "content", str(response))
         return {**state, "steps": steps, "sources": sources, "answer": answer}
 
@@ -165,6 +165,46 @@ def build_prompt(question: str, sources: list[Source]) -> str:
 资料：
 {context}
 """
+
+
+def _is_model_call_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "insufficient_quota",
+            "current quota",
+            "rate_limit",
+            "429",
+            "apiconnectionerror",
+            "connection error",
+            "timed out",
+            "timeout",
+        )
+    )
+
+
+def _model_error_response(exc: Exception) -> tuple[str, str]:
+    message = str(exc).lower()
+    if "insufficient_quota" in message or "current quota" in message:
+        return (
+            "模型账号当前没有可用额度，无法生成正式回答。请检查账户余额、套餐或付款设置；也可以暂时切换到其他模型。",
+            "查询了资料，但模型调用因为额度不足而停止",
+        )
+    if "rate_limit" in message or "429" in message:
+        return (
+            "模型服务现在请求过多或被限流，请稍后再试。",
+            "查询了资料，但模型服务暂时限制了请求",
+        )
+    if "apiconnectionerror" in message or "connection error" in message or "timed out" in message or "timeout" in message:
+        return (
+            "模型服务暂时连接不上，无法生成正式回答。系统已经完成资料检索，请稍后重试或切换模型。",
+            "查询了资料，但模型服务暂时连接失败",
+        )
+    return (
+        "模型服务调用失败，无法生成正式回答。系统已经完成资料检索，请检查模型配置后重试。",
+        "查询了资料，但模型服务调用失败",
+    )
 
 
 class _FallbackGraph:
