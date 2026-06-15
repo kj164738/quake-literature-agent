@@ -8,6 +8,7 @@
 - 支持内置示例资料，打开后可以直接试用
 - 支持 OpenAI API，也保留 DeepSeek API 选项
 - 使用本地知识库回答问题，并展示参考来源
+- 支持可配置 embedding 检索，并融合关键词匹配做简单重排
 - 通过 Agent 流程判断是否需要查询外部论文
 - 支持手动打开 arXiv 查询，方便演示外部工具调用
 - 没有可靠资料时会说明资料不足，避免乱答
@@ -39,6 +40,7 @@ Copy-Item .env.example .env
 MODEL_PROVIDER=openai
 OPENAI_API_KEY=你的 OpenAI API Key
 OPENAI_MODEL=gpt-4.1-mini
+EMBEDDING_PROVIDER=local
 ```
 
 然后启动网页：
@@ -63,6 +65,23 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 ```
+
+## 检索模式
+
+默认配置使用本地混合检索，不需要额外 API 费用：
+
+```env
+EMBEDDING_PROVIDER=local
+```
+
+如果你有可用的 OpenAI API 额度，可以启用真实语义向量检索：
+
+```env
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+系统会把向量检索结果和关键词匹配结果融合排序，减少只靠单一路径漏掉相关论文片段的情况。如果 embedding 服务不可用，系统会自动退回本地关键词检索，网页不会直接崩溃。
 
 ## 项目流程
 
@@ -108,4 +127,4 @@ python eval_agent.py
 
 ## 简历表述
 
-基于 LangChain + LangGraph 构建地震/地球物理文献问答 Agent，集成本地论文 RAG 检索与 arXiv 外部搜索工具，支持答案来源追踪和资料不足时的拒答机制；使用 Streamlit 提供可交互网页 Demo，并构建轻量评测 harness 自动验证本地检索、外部工具调用和拒答行为。
+基于 LangChain + LangGraph 构建地震/地球物理文献问答 Agent，集成本地论文 RAG 检索与 arXiv 外部搜索工具，支持答案来源追踪和资料不足时的拒答机制；优化检索链路，支持可配置 embedding 检索、关键词融合排序和失败兜底；使用 Streamlit 提供可交互网页 Demo，并构建轻量评测 harness 自动验证本地检索、外部工具调用和拒答行为。
