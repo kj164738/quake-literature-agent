@@ -21,3 +21,21 @@ def test_placeholder_keys_are_ignored(monkeypatch):
 
     assert settings.active_provider == "demo"
     assert not settings.has_api_key
+
+
+def test_embedding_provider_defaults_to_local(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    settings = load_settings()
+
+    assert settings.active_embedding_provider == "local"
+
+
+def test_openai_embedding_provider_requires_openai_key(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    settings = load_settings()
+
+    assert settings.active_embedding_provider == "openai"
