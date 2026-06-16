@@ -43,6 +43,8 @@ def test_agent_uses_local_sources_when_relevant():
     assert "查询了本地论文知识库" in result.steps
     assert all("arXiv" not in step for step in result.steps)
     assert result.sources[0].label.startswith("early-warning.md")
+    assert result.trace.local_result_count >= 1
+    assert result.trace.source_count >= 1
 
 
 def test_agent_searches_arxiv_when_local_sources_are_weak():
@@ -64,6 +66,8 @@ def test_agent_searches_arxiv_when_local_sources_are_weak():
 
     assert "本地资料不足，查询了 arXiv" in result.steps
     assert any(source.url == "https://arxiv.org/abs/0000.0000" for source in result.sources)
+    assert result.trace.used_arxiv is True
+    assert result.trace.arxiv_result_count == 1
 
 
 def test_agent_can_force_arxiv_search_for_demo():
@@ -106,6 +110,7 @@ def test_agent_refuses_when_no_sources_exist():
     assert "不能给出确定结论" in result.answer
     assert "没有找到可靠来源，触发拒答机制" in result.steps
     assert result.sources == []
+    assert result.trace.refused is True
 
 
 def test_agent_returns_friendly_message_for_quota_error():
@@ -123,6 +128,7 @@ def test_agent_returns_friendly_message_for_quota_error():
     assert "没有可用额度" in result.answer
     assert "额度不足" in result.steps[-1]
     assert result.sources[0].label.startswith("early-warning.md")
+    assert result.trace.model_error is not None
 
 
 def test_agent_returns_friendly_message_for_connection_error():

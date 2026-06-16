@@ -16,6 +16,8 @@ class Settings:
     deepseek_model: str
     chroma_dir: str
     sample_dir: str
+    paper_library_dir: str
+    log_dir: str
 
     @property
     def has_api_key(self) -> bool:
@@ -67,6 +69,8 @@ def load_settings() -> Settings:
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         chroma_dir=os.getenv("CHROMA_DIR", ".chroma"),
         sample_dir=os.getenv("SAMPLE_PAPER_DIR", "sample_papers"),
+        paper_library_dir=os.getenv("PAPER_LIBRARY_DIR", "paper_library"),
+        log_dir=os.getenv("LOG_DIR", "logs"),
     )
 
 

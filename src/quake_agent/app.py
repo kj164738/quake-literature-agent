@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import html
-import tempfile
+from collections import Counter
 from pathlib import Path
 
 import streamlit as st
@@ -12,6 +12,8 @@ from quake_agent.config import load_settings
 from quake_agent.document_loader import load_directory, load_documents
 from quake_agent.embeddings import build_embeddings
 from quake_agent.llm import DemoLLM, MissingApiKeyError, build_chat_llm
+from quake_agent.observability import append_run_record, build_run_record, load_recent_run_records
+from quake_agent.paper_library import delete_paper, list_papers, save_uploaded_papers
 from quake_agent.vector_store import LocalKnowledgeBase
 
 
@@ -21,15 +23,33 @@ st.set_page_config(page_title="地震文献问答 Agent", page_icon="🌋", layo
 def main() -> None:
     settings = load_settings()
     _inject_styles()
+    library_papers = list_papers(settings.paper_library_dir)
+    selected_library_names: list[str] = []
 
     with st.sidebar:
         st.markdown("### 资料入口")
         uploaded_files = st.file_uploader(
-            "上传 PDF / TXT / MD",
+            "上传 PDF / TXT / MD 到资料库",
             type=["pdf", "txt", "md"],
             accept_multiple_files=True,
         )
+        if uploaded_files and st.button("保存到资料库", use_container_width=True):
+            saved_papers = save_uploaded_papers(uploaded_files, settings.paper_library_dir)
+            st.success(f"已保存 {len(saved_papers)} 个文件")
+            st.rerun()
+
         use_samples = st.checkbox("使用内置示例资料", value=True)
+        if library_papers:
+            all_library_names = [paper.name for paper in library_papers]
+            selected_library_names = st.multiselect(
+                "选择资料库论文",
+                all_library_names,
+                default=all_library_names,
+                help="只有选中的论文会进入本次知识库。",
+            )
+        else:
+            st.caption("资料库还没有保存的论文。")
+
         arxiv_mode_label = st.radio(
             "外部搜索",
             ["自动", "总是查询 arXiv", "关闭"],
@@ -46,18 +66,29 @@ def main() -> None:
             st.success(f"语义检索：{settings.openai_embedding_model}")
         else:
             st.info("检索：本地混合检索")
+        st.caption(f"资料库：{settings.paper_library_dir}")
+        st.caption(f"运行日志：{settings.log_dir}/runs.jsonl")
         st.code("streamlit run app.py", language="bash")
 
-    chunks = _load_chunks(uploaded_files, settings.sample_dir, use_samples)
+    selected_library_paths = [
+        paper.path for paper in library_papers if paper.name in selected_library_names
+    ]
+    chunks = _load_chunks(settings.sample_dir, use_samples, selected_library_paths)
     paper_names = sorted({chunk.source for chunk in chunks})
+    recent_records = load_recent_run_records(settings.log_dir)
 
     _render_header(settings, paper_names, chunks)
     left, right = st.columns([0.36, 0.64], gap="large")
 
     with left:
-        _render_knowledge_panel(paper_names, chunks, arxiv_mode_label, settings)
+        knowledge_tab, management_tab = st.tabs(["知识库", "论文管理"])
+        with knowledge_tab:
+            _render_knowledge_panel(paper_names, chunks, arxiv_mode_label, settings)
+        with management_tab:
+            _render_paper_management(library_papers, settings.paper_library_dir)
 
     result = None
+    run_record = None
     with right:
         with st.container(border=True):
             st.markdown("### 提问工作区")
@@ -87,9 +118,27 @@ def main() -> None:
                     arxiv_mode=_arxiv_mode(arxiv_mode_label),
                 )
                 result = agent.answer(question)
+                run_record = build_run_record(
+                    question=question,
+                    result=result,
+                    settings=settings,
+                    paper_count=len(paper_names),
+                    chunk_count=len(chunks),
+                    arxiv_mode=arxiv_mode_label,
+                )
+                log_saved = True
+                try:
+                    append_run_record(settings.log_dir, run_record)
+                except OSError:
+                    log_saved = False
+                    st.warning("本次回答已完成，但运行日志暂时无法写入。")
+                recent_records = load_recent_run_records(settings.log_dir)
+                if not log_saved:
+                    recent_records = [run_record, *recent_records]
 
     if result is not None:
-        _render_result(result)
+        _render_result(result, run_record)
+    _render_recent_runs(recent_records)
 
 
 def _inject_styles() -> None:
@@ -303,6 +352,26 @@ def _inject_styles() -> None:
             white-space: nowrap;
         }
 
+        .library-item {
+            border: 1px solid #e0e5ee;
+            background: #fbfcfd;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0 8px 0;
+        }
+
+        .library-name {
+            color: var(--ink);
+            font-weight: 750;
+            word-break: break-word;
+            margin-bottom: 6px;
+        }
+
+        .library-meta {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
         .mode-pill {
             display: inline-block;
             border-radius: 999px;
@@ -396,8 +465,67 @@ def _inject_styles() -> None:
             margin-bottom: 10px;
         }
 
+        .trace-panel {
+            background: #ffffff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px 18px;
+            margin: 14px 0 16px 0;
+            box-shadow: 0 14px 34px rgba(32, 44, 62, .06);
+        }
+
+        .trace-title {
+            color: var(--ink);
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+
+        .trace-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .trace-card {
+            border: 1px solid #e0e5ee;
+            border-radius: 8px;
+            background: #f8fafc;
+            padding: 10px 12px;
+        }
+
+        .trace-card b {
+            display: block;
+            color: var(--ink);
+            font-size: 18px;
+            margin-bottom: 3px;
+        }
+
+        .trace-card span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .trace-pills {
+            margin-top: 12px;
+        }
+
+        .trace-pills span {
+            display: inline-block;
+            border-radius: 999px;
+            background: #eef4fb;
+            border: 1px solid #dbe7f5;
+            color: var(--blue);
+            font-size: 12px;
+            padding: 5px 10px;
+            margin: 0 6px 6px 0;
+        }
+
         @media (max-width: 900px) {
             .metric-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .trace-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
             .hero-grid {
@@ -448,6 +576,7 @@ def _render_header(settings, paper_names: list[str], chunks: list) -> None:
 
 
 def _render_knowledge_panel(paper_names: list[str], chunks: list, arxiv_mode_label: str, settings) -> None:
+    chunk_counts = Counter(chunk.source for chunk in chunks)
     with st.container(border=True):
         st.markdown("### 当前知识库")
         st.markdown(
@@ -464,7 +593,7 @@ def _render_knowledge_panel(paper_names: list[str], chunks: list, arxiv_mode_lab
                 (
                     '<div class="paper-item">'
                     f'<span class="paper-name">{html.escape(name)}</span>'
-                    '<span class="paper-tag">indexed</span>'
+                    f'<span class="paper-tag">{chunk_counts[name]} chunks</span>'
                     '</div>'
                 )
                 for name in paper_names
@@ -475,7 +604,32 @@ def _render_knowledge_panel(paper_names: list[str], chunks: list, arxiv_mode_lab
             st.info("请上传论文，或启用内置示例资料。")
 
 
-def _render_result(result) -> None:
+def _render_paper_management(library_papers, library_dir: str) -> None:
+    with st.container(border=True):
+        st.markdown("### 本地论文管理")
+        st.caption("上传后保存到本地资料库，可选择是否纳入本次问答，也可以删除不需要的文件。")
+        st.caption(f"目录：{Path(library_dir).name}")
+        if not library_papers:
+            st.info("还没有保存的论文。先在左侧上传并点击“保存到资料库”。")
+            return
+        for paper in library_papers:
+            st.markdown(
+                f"""
+                <div class="library-item">
+                    <div class="library-name">{html.escape(paper.name)}</div>
+                    <div class="library-meta">
+                        {paper.suffix} · {paper.size_label} · {paper.modified_at.strftime('%Y-%m-%d %H:%M UTC')}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("删除文件", key=f"delete-{paper.name}", use_container_width=True):
+                delete_paper(library_dir, paper.name)
+                st.rerun()
+
+
+def _render_result(result, run_record) -> None:
     st.markdown(
         f"""
         <section class="answer-panel">
@@ -485,6 +639,8 @@ def _render_result(result) -> None:
         """,
         unsafe_allow_html=True,
     )
+    if run_record is not None:
+        _render_observability(run_record)
 
     with st.container(border=True):
         st.markdown("### Agent 操作记录")
@@ -511,23 +667,64 @@ def _render_result(result) -> None:
                     st.link_button("打开来源", source.url)
 
 
+def _render_observability(record) -> None:
+    status = "拒答" if record.refused else "已回答"
+    arxiv_status = "触发 arXiv" if record.used_arxiv else "未触发 arXiv"
+    model_status = "模型异常" if record.model_error else "模型正常"
+    st.markdown(
+        f"""
+        <section class="trace-panel">
+            <div class="trace-title">运行观察</div>
+            <div class="trace-grid">
+                <div class="trace-card"><b>{record.duration_ms} ms</b><span>总耗时</span></div>
+                <div class="trace-card"><b>{record.local_result_count}</b><span>本地命中</span></div>
+                <div class="trace-card"><b>{record.local_top_score:.3f}</b><span>最高相关度</span></div>
+                <div class="trace-card"><b>{record.source_count}</b><span>引用来源</span></div>
+                <div class="trace-card"><b>{record.arxiv_result_count}</b><span>arXiv 返回</span></div>
+            </div>
+            <div class="trace-pills">
+                <span>{html.escape(arxiv_status)}</span>
+                <span>{html.escape(status)}</span>
+                <span>{html.escape(model_status)}</span>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_recent_runs(records) -> None:
+    with st.container(border=True):
+        st.markdown("### 最近运行")
+        st.caption("这些记录来自本地日志，用来复盘每次问答用了哪些资料和工具。")
+        if not records:
+            st.info("还没有运行记录。提问一次后，这里会显示最近结果。")
+            return
+        for record in records[:5]:
+            title = f"{record.created_at.replace('T', ' ')} · {record.question[:48]}"
+            with st.expander(title):
+                st.write(record.answer_preview or "无回答摘要")
+                cols = st.columns(5)
+                cols[0].metric("耗时", f"{record.duration_ms} ms")
+                cols[1].metric("本地命中", record.local_result_count)
+                cols[2].metric("arXiv", record.arxiv_result_count)
+                cols[3].metric("来源", record.source_count)
+                cols[4].metric("资料", record.paper_count)
+                if record.steps:
+                    st.write(" / ".join(record.steps))
+                if record.source_labels:
+                    st.caption("来源：" + "；".join(record.source_labels[:4]))
+
+
 def _format_text(value: str) -> str:
     return html.escape(value).replace("\n", "<br>")
 
 
-def _load_chunks(uploaded_files, sample_dir: str, use_samples: bool):
+def _load_chunks(sample_dir: str, use_samples: bool, library_paths: list[Path]):
     chunks = []
     if use_samples:
         chunks.extend(load_directory(sample_dir))
-
-    if uploaded_files:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            paths = []
-            for uploaded_file in uploaded_files:
-                path = Path(tmpdir) / uploaded_file.name
-                path.write_bytes(uploaded_file.getbuffer())
-                paths.append(path)
-            chunks.extend(load_documents(paths))
+    chunks.extend(load_documents(library_paths))
     return chunks
 
 

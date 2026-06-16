@@ -4,6 +4,6 @@ __pycache__/
 .pytest_cache/
 .chroma/
 .test_chroma/
+paper_library/
 logs/
 *.pyc
-
