@@ -10,6 +10,8 @@
 - 支持 OpenAI API，也保留 DeepSeek API 选项
 - 使用本地知识库回答问题，并展示参考来源
 - 支持可配置 embedding 检索，并融合关键词匹配做简单重排
+- 支持可选本地开源语义 embedding，不依赖 OpenAI 额度也能做真实语义检索
+- 文档切分优先保留段落和句子边界，减少把完整论述切断的问题
 - 通过 Agent 流程判断是否需要查询外部论文
 - 支持手动打开 arXiv 查询，方便演示外部工具调用
 - 没有可靠资料时会说明资料不足，避免乱答
@@ -105,6 +107,21 @@ DEEPSEEK_MODEL=deepseek-chat
 EMBEDDING_PROVIDER=local
 ```
 
+如果你想在免费模式下使用真正的本地开源语义模型，可以额外安装：
+
+```powershell
+pip install -r requirements-semantic.txt
+```
+
+然后把 `.env` 改成：
+
+```env
+EMBEDDING_PROVIDER=sentence_transformers
+LOCAL_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+```
+
+这个模型会在本机运行，不需要 OpenAI embedding 额度。首次使用时可能需要下载模型文件；如果本机没有安装相关依赖或模型加载失败，系统会自动退回轻量本地检索，网页不会崩溃。
+
 如果你有可用的 OpenAI API 额度，可以启用真实语义向量检索：
 
 ```env
@@ -113,6 +130,24 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
 系统会把向量检索结果和关键词匹配结果融合排序，减少只靠单一路径漏掉相关论文片段的情况。如果 embedding 服务不可用，系统会自动退回本地关键词检索，网页不会直接崩溃。
+
+## 真实 PDF 检查
+
+PDF 论文的文字提取质量会受排版、扫描图片、公式和双栏布局影响。把真实论文加入资料库前，可以先运行：
+
+```powershell
+python validate_pdf_ingestion.py "你的论文.pdf"
+```
+
+它会输出：
+
+- PDF 页数
+- 成功提取到文字的页数
+- 总文字量
+- 生成的文本片段数量
+- 哪些页面文字过少，可能是扫描页或提取失败
+
+如果状态显示 `no_extractable_text`，说明这类 PDF 需要 OCR 后再进入知识库。
 
 ## 项目流程
 

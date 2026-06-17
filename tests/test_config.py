@@ -39,3 +39,13 @@ def test_openai_embedding_provider_requires_openai_key(monkeypatch):
     settings = load_settings()
 
     assert settings.active_embedding_provider == "openai"
+
+
+def test_sentence_transformer_embedding_provider_is_free_local_mode(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence_transformers")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    settings = load_settings()
+
+    assert settings.active_embedding_provider == "sentence_transformers"
+    assert "sentence-transformers" in settings.local_embedding_model

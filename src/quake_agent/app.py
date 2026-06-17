@@ -64,6 +64,8 @@ def main() -> None:
             st.warning("未配置 API Key，将使用离线演示回答")
         if settings.active_embedding_provider == "openai":
             st.success(f"语义检索：{settings.openai_embedding_model}")
+        elif settings.active_embedding_provider == "sentence_transformers":
+            st.success(f"本地语义检索：{settings.local_embedding_model}")
         else:
             st.info("检索：本地混合检索")
         st.caption(f"资料库：{settings.paper_library_dir}")
@@ -543,7 +545,7 @@ def _inject_styles() -> None:
 
 def _render_header(settings, paper_names: list[str], chunks: list) -> None:
     model = settings.active_provider.upper() if settings.has_api_key else "DEMO"
-    retrieval = settings.openai_embedding_model if settings.active_embedding_provider == "openai" else "Local hybrid"
+    retrieval = _retrieval_label(settings)
     st.markdown(
         f"""
         <section class="hero">
@@ -718,6 +720,14 @@ def _render_recent_runs(records) -> None:
 
 def _format_text(value: str) -> str:
     return html.escape(value).replace("\n", "<br>")
+
+
+def _retrieval_label(settings) -> str:
+    if settings.active_embedding_provider == "openai":
+        return settings.openai_embedding_model
+    if settings.active_embedding_provider == "sentence_transformers":
+        return "Local semantic"
+    return "Local hybrid"
 
 
 def _load_chunks(sample_dir: str, use_samples: bool, library_paths: list[Path]):
