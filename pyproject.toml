@@ -1,11 +1,31 @@
 [project]
 name = "quake-literature-agent"
-version = "0.1.0"
-description = "Earthquake and geophysics literature QA agent demo."
+version = "0.2.0"
+description = "Evidence-aware earthquake and geophysics research workbench."
 requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.63,<2",
+    "langchain-chroma>=1.1,<2",
+    "langchain-openai>=1.2,<2",
+    "langgraph>=1.2,<2",
+    "pypdf>=6.9,<7",
+    "python-dotenv>=1,<2",
+    "defusedxml>=0.7.1,<1",
+    "markdown-it-py>=3,<5",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+semantic = ["sentence-transformers>=3,<6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
-

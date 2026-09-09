@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -59,14 +60,20 @@ class LocalKnowledgeBase:
         self.keyword_weight = keyword_weight
         self._chunks: list[PaperChunk] = []
         self._chroma = None
+        self.warning: str | None = None
+        self.backend = "keyword"
 
     def build(self, chunks: list[PaperChunk]) -> None:
-        self._chunks = chunks
+        self._chunks = list(dict.fromkeys(chunks))
+        chunks = self._chunks
+        self._chroma = None
+        self.warning = None
+        self.backend = "keyword"
         if not chunks:
             self._chroma = None
             return
 
-        if not self.use_chroma:
+        if not self.use_chroma or isinstance(self.embeddings, HashEmbeddings):
             self._chroma = None
             return
 
@@ -77,9 +84,9 @@ class LocalKnowledgeBase:
                 from langchain_community.vectorstores import Chroma
             except ImportError:
                 self._chroma = None
+                self.warning = "向量依赖不可用，已使用关键词检索。"
                 return
 
-        Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
         texts = [chunk.text for chunk in chunks]
         metadatas = [
             {
@@ -89,32 +96,53 @@ class LocalKnowledgeBase:
             }
             for chunk in chunks
         ]
-        ids = [f"{chunk.source}-{chunk.page or 0}-{chunk.chunk_id}" for chunk in chunks]
+        ids = [hashlib.sha256(_chunk_key(chunk).encode()).hexdigest() for chunk in chunks]
+        identity = [type(self.embeddings).__name__, getattr(self.embeddings, "model", None),
+                    getattr(self.embeddings, "model_name", None), ids]
+        digest = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
+        # An immutable corpus/model namespace prevents deleted or deselected papers leaking into retrieval.
+        collection = f"{self.collection_name[:24]}_{digest}"
         try:
-            self._chroma = Chroma.from_texts(
-                texts=texts,
-                embedding=self.embeddings,
-                metadatas=metadatas,
-                ids=ids,
-                collection_name=self.collection_name,
+            from chromadb.config import Settings as ChromaSettings
+            Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
+            store = Chroma(
+                embedding_function=self.embeddings,
+                collection_name=collection,
+                collection_metadata={"hnsw:space": "cosine"},
+                client_settings=ChromaSettings(anonymized_telemetry=False, is_persistent=True),
                 persist_directory=self.persist_dir,
             )
+            existing = set(store.get(ids=ids)["ids"])
+            missing = [i for i, item in enumerate(ids) if item not in existing]
+            for start in range(0, len(missing), 256):
+                batch = missing[start:start + 256]
+                store.add_texts(texts=[texts[i] for i in batch],
+                                metadatas=[metadatas[i] for i in batch],
+                                ids=[ids[i] for i in batch])
+            self._chroma = store
+            self.backend = "hybrid"
         except Exception:
             self._chroma = None
+            self.warning = "向量索引不可用，已使用关键词检索。"
 
     def search(self, query: str, k: int = 4) -> list[SearchResult]:
-        if not query.strip() or not self._chunks:
+        if k <= 0 or not query.strip() or not self._chunks:
             return []
         candidate_k = max(k * 4, k)
         keyword_results = self._keyword_search(query, k=candidate_k)
         if self._chroma is not None:
-            vector_results = self._vector_search(query, k=candidate_k)
-            return self._merge_results(vector_results, keyword_results, k=k)
+            try:
+                vector_results = self._vector_search(query, k=candidate_k)
+                return self._merge_results(vector_results, keyword_results, k=k)
+            except Exception:
+                self.warning = "向量查询失败，本次已使用关键词检索。"
+                self.backend = "keyword"
         return keyword_results[:k]
 
     def _vector_search(self, query: str, k: int) -> list[SearchResult]:
         docs_with_scores = self._chroma.similarity_search_with_score(query, k=k)
         results: list[SearchResult] = []
+        allowed = {_chunk_key(chunk) for chunk in self._chunks}
         for doc, distance in docs_with_scores:
             metadata = doc.metadata
             chunk = PaperChunk(
@@ -123,8 +151,12 @@ class LocalKnowledgeBase:
                 page=int(metadata.get("page") or 0) or None,
                 chunk_id=int(metadata.get("chunk_id") or 0),
             )
-            normalized_score = 1.0 / (1.0 + max(0.0, float(distance)))
-            results.append(SearchResult(chunk=chunk, score=normalized_score))
+            distance = float(distance)
+            if not math.isfinite(distance) or _chunk_key(chunk) not in allowed:
+                continue
+            normalized_score = max(0.0, min(1.0, 1.0 - distance))
+            if normalized_score > 0:
+                results.append(SearchResult(chunk=chunk, score=normalized_score))
         return results
 
     def _keyword_search(self, query: str, k: int) -> list[SearchResult]:
@@ -177,10 +209,15 @@ class LocalKnowledgeBase:
 
 
 def _chunk_key(chunk: PaperChunk) -> str:
-    return f"{chunk.source}|{chunk.page or 0}|{chunk.chunk_id}|{chunk.text[:80]}"
+    return json.dumps([chunk.source, chunk.page, chunk.chunk_id, chunk.text], ensure_ascii=False)
 
 
 def tokenize(text: str) -> list[str]:
-    words = re.findall(r"[a-z0-9]+", text.lower())
-    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
-    return words + cjk_chars
+    stopwords = {"the", "a", "an", "and", "or", "is", "are", "of", "to", "in", "for",
+                 "how", "why", "what", "do", "does", "can", "with", "from", "this", "that"}
+    words = [word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in stopwords]
+    cjk = []
+    for segment in re.findall(r"[\u4e00-\u9fff]+", text):
+        cjk.extend(segment[i:i + 2] for i in range(len(segment) - 1))
+    cjk = [word for word in cjk if word not in {"什么", "如何", "为什么", "可以", "是否", "需要", "哪些", "一个"}]
+    return words + cjk

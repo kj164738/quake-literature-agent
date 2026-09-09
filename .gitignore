@@ -7,3 +7,8 @@ __pycache__/
 paper_library/
 logs/
 *.pyc
+*.egg-info/
+output/
+.playwright-cli/
+build/
+dist/

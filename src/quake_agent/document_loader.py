@@ -53,11 +53,14 @@ def load_directory(directory: str | Path) -> list[PaperChunk]:
 
 
 def split_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str]:
+    if chunk_size < 1 or overlap < 0:
+        raise ValueError("chunk_size must be positive and overlap nonnegative")
+    overlap = min(overlap, chunk_size - 1)
     normalized = _normalize_text(text)
     if not normalized:
         return []
 
-    units = _semantic_units(normalized, chunk_size)
+    units = _semantic_units(normalized, chunk_size, overlap)
     chunks: list[str] = []
     current = ""
     for unit in units:
@@ -95,7 +98,7 @@ def _normalize_text(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def _semantic_units(text: str, chunk_size: int) -> list[str]:
+def _semantic_units(text: str, chunk_size: int, overlap: int = 120) -> list[str]:
     units: list[str] = []
     paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", text) if paragraph.strip()]
     if not paragraphs:
@@ -109,7 +112,7 @@ def _semantic_units(text: str, chunk_size: int) -> list[str]:
             if len(sentence) <= chunk_size:
                 units.append(sentence)
             else:
-                hard_overlap = max(0, min(chunk_size // 5, 120, chunk_size - 1))
+                hard_overlap = max(0, min(overlap, chunk_size - 1))
                 units.extend(_hard_split(sentence, chunk_size, overlap=hard_overlap))
     return units
 
@@ -118,7 +121,7 @@ def _split_sentences(paragraph: str) -> list[str]:
     sentences: list[str] = []
     start = 0
     for index, char in enumerate(paragraph):
-        if char in "。！？!?；;":
+        if char in "。！？!?；;" or (char == "." and (index + 1 == len(paragraph) or paragraph[index + 1].isspace())):
             sentence = paragraph[start : index + 1].strip()
             if sentence:
                 sentences.append(sentence)
@@ -156,7 +159,7 @@ def _read_file(path: Path) -> list[tuple[int | None, str]]:
     if suffix == ".pdf":
         return _read_pdf(path)
     if suffix in {".txt", ".md"}:
-        return [(None, path.read_text(encoding="utf-8", errors="ignore"))]
+        return [(None, path.read_text(encoding="utf-8-sig"))]
     return []
 
 
@@ -167,7 +170,16 @@ def _read_pdf(path: Path) -> list[tuple[int | None, str]]:
         raise RuntimeError("Reading PDF files requires pypdf. Run: pip install -r requirements.txt") from exc
 
     reader = PdfReader(str(path))
+    if reader.is_encrypted and not reader.decrypt(""):
+        raise ValueError("PDF 已加密，请先解密。")
+    if len(reader.pages) > 500:
+        raise ValueError("PDF 超过 500 页，请拆分后上传。")
     pages: list[tuple[int | None, str]] = []
+    total_chars = 0
     for index, page in enumerate(reader.pages, start=1):
-        pages.append((index, page.extract_text() or ""))
+        text = page.extract_text() or ""
+        total_chars += len(text)
+        if total_chars > 3_000_000:
+            raise ValueError("PDF 文本过大，请拆分后上传。")
+        pages.append((index, text))
     return pages

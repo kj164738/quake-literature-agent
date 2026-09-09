@@ -17,6 +17,9 @@ def build_chat_llm(settings: Settings):
             api_key=settings.openai_api_key,
             model=settings.openai_model,
             temperature=0.2,
+            timeout=35,
+            max_retries=1,
+            max_tokens=2000,
         )
 
     if settings.active_provider != "deepseek":
@@ -29,17 +32,22 @@ def build_chat_llm(settings: Settings):
         base_url=settings.deepseek_base_url,
         model=settings.deepseek_model,
         temperature=0.2,
+        timeout=35,
+        max_retries=1,
+        max_tokens=2000,
     )
 
 
 class DemoLLM:
     """Offline responder used when no API key is configured."""
 
+    is_demo = True
+
     def invoke(self, prompt: str):
         class Response:
             content = (
-                "当前没有配置 OpenAI 或 DeepSeek API Key，所以这是离线演示回答。"
-                "系统已经完成资料检索与来源整理；配置 API Key 后会生成正式回答。"
+                "本次为离线预览，已完成资料检索与来源整理，未调用语言模型。"
+                "下方列出了候选资料，尚未生成或核实研究结论。"
             )
 
         return Response()

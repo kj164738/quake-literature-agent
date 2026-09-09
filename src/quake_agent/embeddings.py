@@ -41,6 +41,8 @@ def build_embeddings(settings: Settings):
         return OpenAIEmbeddings(
             api_key=settings.openai_api_key,
             model=settings.openai_embedding_model,
+            request_timeout=20,
+            max_retries=1,
         )
 
     if settings.active_embedding_provider == "sentence_transformers":

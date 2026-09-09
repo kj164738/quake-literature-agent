@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class Settings:
     model_provider: str
-    openai_api_key: str | None
+    openai_api_key: str | None = field(repr=False)
     openai_model: str
     embedding_provider: str
     openai_embedding_model: str
     local_embedding_model: str
-    deepseek_api_key: str | None
+    deepseek_api_key: str | None = field(repr=False)
     deepseek_base_url: str
     deepseek_model: str
     chroma_dir: str
@@ -27,6 +27,8 @@ class Settings:
     @property
     def active_provider(self) -> str:
         provider = self.model_provider.lower().strip()
+        if provider == "demo":
+            return "demo"
         if provider in {"openai", "deepseek"}:
             return provider
         if self.openai_api_key:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,10 @@ class RunRecord:
     model_error: str | None
     steps: list[str] = field(default_factory=list)
     source_labels: list[str] = field(default_factory=list)
+    status: str = "unknown"
+    tool_error: str | None = None
+    citation_status: str = "unchecked"
+    model_calls: int = 0
 
 
 def build_run_record(
@@ -49,7 +54,7 @@ def build_run_record(
         question=question.strip(),
         answer_preview=result.answer.strip().replace("\n", " ")[:220],
         model_provider=settings.active_provider.upper() if settings.has_api_key else "DEMO",
-        retrieval_provider=settings.active_embedding_provider.upper(),
+        retrieval_provider=trace.retrieval_backend,
         arxiv_mode=arxiv_mode,
         paper_count=paper_count,
         chunk_count=chunk_count,
@@ -63,6 +68,10 @@ def build_run_record(
         model_error=trace.model_error,
         steps=list(result.steps),
         source_labels=[source.label for source in result.sources],
+        status=trace.status,
+        tool_error=trace.tool_error,
+        citation_status=trace.citation_status,
+        model_calls=trace.model_calls,
     )
 
 
@@ -76,13 +85,21 @@ def append_run_record(log_dir: str | Path, record: RunRecord) -> Path:
 
 
 def load_recent_run_records(log_dir: str | Path, limit: int = 8) -> list[RunRecord]:
+    if limit <= 0:
+        return []
     path = Path(log_dir) / "runs.jsonl"
     if not path.exists():
         return []
-    rows: list[RunRecord] = []
+    rows = deque(maxlen=min(limit, 100))
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+        with path.open("rb") as handle:
+            # The UI only needs recent records, never an unbounded full log scan.
+            size = path.stat().st_size
+            if size > 1_048_576:
+                handle.seek(size - 1_048_576)
+                handle.readline()
+            for raw_line in handle:
+                line = raw_line.decode("utf-8", errors="replace")
                 line = line.strip()
                 if not line:
                     continue
@@ -92,10 +109,12 @@ def load_recent_run_records(log_dir: str | Path, limit: int = 8) -> list[RunReco
                     continue
     except OSError:
         return []
-    return rows[-limit:][::-1]
+    return list(reversed(rows))
 
 
 def _record_from_dict(data: dict[str, Any]) -> RunRecord:
+    if not isinstance(data, dict):
+        raise ValueError("Run record must be an object")
     return RunRecord(
         run_id=str(data.get("run_id", "")),
         created_at=str(data.get("created_at", "")),
@@ -116,4 +135,8 @@ def _record_from_dict(data: dict[str, Any]) -> RunRecord:
         model_error=data.get("model_error"),
         steps=list(data.get("steps") or []),
         source_labels=list(data.get("source_labels") or []),
+        status=str(data.get("status", "unknown")),
+        tool_error=data.get("tool_error"),
+        citation_status=str(data.get("citation_status", "unchecked")),
+        model_calls=int(data.get("model_calls") or 0),
     )

@@ -98,7 +98,7 @@ def test_agent_can_force_arxiv_search_for_demo():
 
     result = agent.answer("地震预警系统为什么需要快速估计震级？")
 
-    assert "本地资料不足，查询了 arXiv" in result.steps
+    assert "按设置查询了 arXiv" in result.steps
     assert any(source.url == "https://arxiv.org/abs/1111.1111" for source in result.sources)
 
 

@@ -26,7 +26,7 @@ class EvalResult:
 class EvalLLM:
     def invoke(self, prompt: str):
         class Response:
-            content = "评测模式回答：系统已根据可用来源生成答案。"
+            content = "评测模式回答：系统已根据可用来源生成答案。[1]"
 
         return Response()
 
@@ -71,8 +71,14 @@ def _check_case(case: dict[str, Any], answer: AgentAnswer) -> EvalResult:
         if not any(expected in label for label in source_labels):
             failures.append(f"missing source label: {expected}")
 
-    if case.get("expect_refusal") and "不能给出确定结论" not in answer.answer:
+    if "expect_refusal" in case and bool(case["expect_refusal"]) != answer.trace.refused:
         failures.append("expected refusal answer")
+    if "expect_status" in case and case["expect_status"] != answer.trace.status:
+        failures.append(f"unexpected status: {answer.trace.status}")
+    if answer.trace.model_error:
+        failures.append("model call failed")
+    if answer.trace.status == "answered" and answer.trace.citation_status != "valid":
+        failures.append("answer has no valid citations")
 
     return EvalResult(
         case_id=case["id"],

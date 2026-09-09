@@ -26,7 +26,7 @@ def test_keyword_retrieval_ranks_relevant_chunk_first_without_chroma():
     assert results[0].score > results[1].score
 
 
-def test_chroma_build_failure_falls_back_to_keyword_retrieval():
+def test_chroma_build_failure_falls_back_to_keyword_retrieval(tmp_path):
     class BrokenEmbeddings:
         def embed_documents(self, texts):
             raise RuntimeError("embedding service unavailable")
@@ -34,7 +34,7 @@ def test_chroma_build_failure_falls_back_to_keyword_retrieval():
         def embed_query(self, text):
             raise RuntimeError("embedding service unavailable")
 
-    kb = LocalKnowledgeBase(embeddings=BrokenEmbeddings())
+    kb = LocalKnowledgeBase(persist_dir=str(tmp_path), embeddings=BrokenEmbeddings())
     kb.build(
         [
             PaperChunk(
